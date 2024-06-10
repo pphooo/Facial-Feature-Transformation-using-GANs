@@ -1,1 +1,11 @@
-
+Pillow
+torch
+torchvision.transforms
+argparse
+os
+sys
+utils.common
+models.psp
+dlib
+utils.alignment
+editings
