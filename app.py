@@ -1,3 +1,4 @@
+import sys
 import os
 from pyngrok import ngrok
 import streamlit as st
@@ -8,6 +9,9 @@ import torchvision.transforms as transforms
 from argparse import Namespace
 import requests
 import bz2
+
+# Add project root directory to sys.path
+sys.path.append(os.path.abspath('/content/encoder4editing/utils/common.py'))
 
 from utils.common import tensor2im
 from models.psp import pSp
