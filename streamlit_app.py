@@ -1,77 +1,40 @@
-import streamlit as st
-from PIL import Image
-from ultralytics import YOLO
 import cv2
-import tempfile
-import os
-import os.path as osp
-model = YOLO('my_modeln.pt')
-def ImgPre(m) :
-  image_file = st.file_uploader("Upload An Image", type=['png', 'jpeg', 'jpg'])
-  if image_file is not None:
-      img = Image.open(image_file)
-      st.image(img ,caption='Uploaded Image')
-      with st.spinner(text="Predicting..."):
-        # Load model
-        pred = m(img,conf = 0.2)
-        boxes = pred[0].boxes
-        res_plotted = pred[0].plot()[:, :, ::-1]
-        st.image(res_plotted, caption='Detected Image')
+import streamlit as st
+import numpy as np
+from PIL import Image
 
+# โหลดโมเดล haarcascade สำหรับ face detection
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-def videoPre (m):
-  uploaded_video = st.file_uploader( "Upload A Video", type=['mp4', 'mpeg', 'mov'])
-  if uploaded_video is not None:
-      tfile = tempfile.NamedTemporaryFile(delete=False)
-      tfile.write(uploaded_video.read())
-      video_name = uploaded_video.name
-      fn , file_extension = osp.splitext(video_name)
-      fn = ''.join(e for e in fn if e.isalnum()) + file_extension
-      outputpath = osp.join('data/video_output', fn)
-      os.makedirs('data/video_output', exist_ok=True)
-      os.makedirs('data/video_frames', exist_ok=True)
-      frames_dir = osp.join('data/video_frames',''.join(e for e in video_name if e.isalnum()))
-      os.makedirs(frames_dir, exist_ok=True)
-      frame_count = 0
-      if uploaded_video:
-            st.video(tfile.name)
-            vid_cap = cv2.VideoCapture(tfile.name)
-            st_frame = st.empty()
-            while (vid_cap.isOpened()):
-              success, image = vid_cap.read()
-              if success:
-                frame_count += 1
-                res = m(image)
-                result_tensor = res[0].boxes
-                res_plotted = res[0].plot()
-                im = Image.fromarray(res_plotted[:,:,::-1])
-                st_frame.image(res_plotted,
-                               caption='Detected Video',
-                               channels="BGR",
-                               use_column_width=True
-                               )
-                im.save(osp.join(frames_dir, f'{frame_count}.jpg'))
-              else :
-                 vid_cap.release()
-                 break
-            os.system(
-            f' ffmpeg -framerate 30 -i {frames_dir}/%d.jpg -c:v libx264 -pix_fmt yuv420p {outputpath}') 
-            os.system(f'rm -rf {frames_dir}')
-            output_video = open(outputpath, 'rb')
-            output_video_bytes = output_video.read()
-            st.video(output_video_bytes)      
-def main() :
-  st.title('Smort-CCTV')
-  with st.sidebar:
-    st.title("Option")
-    option = st.selectbox('How would you like to be contacted?',('Image', 'Video'))
-  if option == 'Video' :
-    st.write('Using video upload option')
-  else :
-    st.write('Using image upload option')
-  if option == 'Image':
-    ImgPre(model) 
-  else :
-    videoPre(model)
-if __name__ == "__main__":
-  main()
+def detect_faces(image):
+    # แปลงภาพจาก RGB เป็น grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # ตรวจจับใบหน้า
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30), flags=cv2.CASCADE_SCALE_IMAGE)
+    return faces
+
+def draw_faces(image, faces):
+    # วาดกรอบรอบใบหน้า
+    for (x, y, w, h) in faces:
+        cv2.rectangle(image, (x, y), (x+w, y+h), (255, 0, 0), 2)
+    return image
+
+# ตั้งค่า Streamlit app
+st.title("Face Detection App")
+
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+if uploaded_file is not None:
+    # อ่านภาพจากการอัพโหลด
+    image = Image.open(uploaded_file)
+    image = np.array(image.convert('RGB'))
+    
+    # ตรวจจับใบหน้า
+    faces = detect_faces(image)
+    
+    # วาดกรอบรอบใบหน้า
+    image_with_faces = draw_faces(image.copy(), faces)
+    
+    # แสดงผลลัพธ์
+    st.image(image_with_faces, caption='Detected Faces', use_column_width=True)
+    st.write(f"Found {len(faces)} face(s)")
+
