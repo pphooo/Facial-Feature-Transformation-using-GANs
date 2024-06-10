@@ -6,6 +6,8 @@ from PIL import Image
 import torch
 import torchvision.transforms as transforms
 from argparse import Namespace
+import requests
+import bz2
 
 from utils.common import tensor2im
 from models.psp import pSp
@@ -18,6 +20,18 @@ print(f"Streamlit Public URL: {public_url}")
 # Setup model and load pre-trained weights
 CODE_DIR = 'encoder4editing'
 os.chdir(f'./{CODE_DIR}')
+
+def download_file(url, dest):
+    response = requests.get(url, stream=True)
+    with open(dest, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+
+def decompress_bz2(src, dest):
+    with bz2.BZ2File(src, 'rb') as file:
+        with open(dest, 'wb') as new_file:
+            for data in iter(lambda: file.read(100 * 1024), b''):
+                new_file.write(data)
 
 def download_model():
     from pydrive.auth import GoogleAuth
@@ -68,6 +82,14 @@ EXPERIMENT_ARGS = {
 img_transforms = EXPERIMENT_ARGS[experiment_type]['transform']
 resize_dims = (256, 256)
 
+# Ensure the dlib model is downloaded and decompressed
+def ensure_dlib_landmark_model():
+    if not os.path.exists('shape_predictor_68_face_landmarks.dat'):
+        download_file('http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2', 'shape_predictor_68_face_landmarks.dat.bz2')
+        decompress_bz2('shape_predictor_68_face_landmarks.dat.bz2', 'shape_predictor_68_face_landmarks.dat')
+
+ensure_dlib_landmark_model()
+
 # Define function for alignment
 def run_alignment(image_path):
     import dlib
@@ -75,6 +97,10 @@ def run_alignment(image_path):
     predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
     aligned_image = align_face(filepath=image_path, predictor=predictor)
     return aligned_image
+
+def run_on_batch(inputs, net):
+    images, latents = net(inputs.to("cuda").float(), randomize_noise=False, return_latents=True)
+    return images, latents
 
 def main():
     st.sidebar.title("About")
@@ -85,27 +111,22 @@ def main():
     """)
     
     st.title('Facial-Feature-Transformation-using-GANs')
-    uploaded_file = st.file_uploader("Choose a video...", type=["jpg", "png"])
+    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"])
   
     if uploaded_file is not None:
-        upload_name = "playback/temp_video.mp4"
-        
         image = Image.open(uploaded_file).convert("RGB")
-        image_path = "/content/uploaded_image.jpg"
+        image_path = "uploaded_image.jpg"
         image.save(image_path)
     
         st.image(image, caption='Uploaded Image', use_column_width=True)
     
         if experiment_type == "ffhq_encode":
-            if 'shape_predictor_68_face_landmarks.dat' not in os.listdir():
-                !wget http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
-                !bzip2 -dk shape_predictor_68_face_landmarks.dat.bz2
-        
             aligned_image = run_alignment(image_path)
-            aligned_image.resize(resize_dims)
+            aligned_image = aligned_image.resize(resize_dims)
             transformed_image = img_transforms(aligned_image)
         
             with torch.no_grad():
+                import time
                 tic = time.time()
                 images, latents = run_on_batch(transformed_image.unsqueeze(0), net)
                 result_image, latent = images[0], latents[0]
@@ -120,7 +141,7 @@ def main():
                 edited_image = editor.apply_sefa(latents, start_distance=20, step=1).resize((256, 256))
                 st.image(edited_image, caption='Edited Image', use_column_width=True)
     else:
-        st.subheader("Please upload a image file.")
+        st.subheader("Please upload an image file.")
 
 if __name__ == '__main__':
     main()
